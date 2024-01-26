@@ -1,8 +1,13 @@
 package net.querz.mca;
 
 import net.querz.nbt.tag.CompoundTag;
+import net.querz.nbt.tag.ListTag;
 import net.querz.nbt.tag.Tag;
 
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.Arrays;
@@ -62,7 +67,7 @@ public class MCAFile implements Iterable<Chunk> {
 			raf.seek(4096 + i * 4);
 			int timestamp = raf.readInt();
 			Chunk chunk = new Chunk(timestamp);
-			raf.seek(4096 * offset + 4); //+4: skip data size
+			raf.seek(4096 * offset + 4);
 			chunk.deserialize(raf, loadFlags);
 			chunks[i] = chunk;
 		}
@@ -216,46 +221,8 @@ public class MCAFile implements Iterable<Chunk> {
 		return chunk;
 	}
 
-	/**
-	 * @deprecated Use {@link #setBiomeAt(int, int, int, int)} instead
-	 */
-	@Deprecated
-	public void setBiomeAt(int blockX, int blockZ, int biomeID) {
-		createChunkIfMissing(blockX, blockZ).setBiomeAt(blockX, blockZ, biomeID);
-	}
 
-	public void setBiomeAt(int blockX, int blockY, int blockZ, int biomeID) {
-		createChunkIfMissing(blockX, blockZ).setBiomeAt(blockX, blockY, blockZ, biomeID);
-	}
-
-	/**
-	 * @deprecated Use {@link #getBiomeAt(int, int, int)} instead
-	 */
-	@Deprecated
-	public int getBiomeAt(int blockX, int blockZ) {
-		int chunkX = MCAUtil.blockToChunk(blockX), chunkZ = MCAUtil.blockToChunk(blockZ);
-		Chunk chunk = getChunk(getChunkIndex(chunkX, chunkZ));
-		if (chunk == null) {
-			return -1;
-		}
-		return chunk.getBiomeAt(blockX, blockZ);
-	}
-
-	/**
-	 * Fetches the biome id at a specific block.
-	 * @param blockX The x-coordinate of the block.
-	 * @param blockY The y-coordinate of the block.
-	 * @param blockZ The z-coordinate of the block.
-	 * @return The biome id if the chunk exists and the chunk has biomes, otherwise -1.
-	 */
-	public int getBiomeAt(int blockX, int blockY, int blockZ) {
-		int chunkX = MCAUtil.blockToChunk(blockX), chunkZ = MCAUtil.blockToChunk(blockZ);
-		Chunk chunk = getChunk(getChunkIndex(chunkX, chunkZ));
-		if (chunk == null) {
-			return -1;
-		}
-		return chunk.getBiomeAt(blockX,blockY, blockZ);
-	}
+	
 
 	/**
 	 * Set a block state at a specific block location.
@@ -270,14 +237,55 @@ public class MCAFile implements Iterable<Chunk> {
 		createChunkIfMissing(blockX, blockZ).setBlockStateAt(blockX, blockY, blockZ, state, cleanup);
 	}
 
-	/**
-	 * Fetches a block state at a specific block location.
-	 * The block coordinates can be absolute coordinates or they can be relative to the region.
-	 * @param blockX The x-coordinate of the block.
-	 * @param blockY The y-coordinate of the block.
-	 * @param blockZ The z-coordinate of the block.
-	 * @return The block state or <code>null</code> if the chunk or the section do not exist.
-	 */
+	public void createMonsterSpawner(int x, int y, int z, MinecraftMob entityType, short spawnCount, short spawnRange, short minSpawnDelay, short maxSpawnDelay, short playerActivationRange, short maxNearbyEntities, short delay) {
+		createChunkIfMissing(x, z).createMonsterSpawner(x, y, z, entityType, spawnCount, spawnRange, minSpawnDelay, maxSpawnDelay, playerActivationRange, maxNearbyEntities, delay);
+	}
+
+	public void createChest(int x, int y, int z, String facing, ListTag<CompoundTag> items) {
+		createChunkIfMissing(x, z).createChest(x, y, z, facing, items);
+	}
+
+	public void createZombie(int xPos, int yPos, int zPos) {
+		createChunkIfMissing(xPos, zPos).createZombie(xPos, yPos, zPos);
+	}
+
+	public void drawImage(String file, int desiredWidth, int desiredHeight, int startX, int startY, int startZ) {//todo add option to choose x/z axis, now only x axis
+		try {
+			// Load the original image
+			File inputFile = new File(file);
+			BufferedImage inputImage = ImageIO.read(inputFile);
+
+			// Create a new BufferedImage with desired dimensions
+			BufferedImage outputImage = new BufferedImage(desiredWidth, desiredHeight, inputImage.getType());
+
+			// Draw the original image onto the new BufferedImage
+			Graphics2D g2d = outputImage.createGraphics();
+			g2d.drawImage(inputImage, 0, 0, desiredWidth, desiredHeight, null);
+			g2d.dispose();
+
+			// Iterate over each pixel of the resized image
+			for (int y = 0; y < desiredHeight; y++) {
+				for (int x = 0; x < desiredWidth; x++) {
+					int rgb = outputImage.getRGB(x, y);
+
+					int red = (rgb >> 16) & 0xFF;
+					int green = (rgb >> 8) & 0xFF;
+					int blue = (rgb) & 0xFF;
+
+					CompoundTag concrete = new CompoundTag();
+                    concrete.putString("Name", MinecraftConcreteColor.closestTo(red, green, blue).getBlockId());
+					int invertedY = startY + (desiredHeight - 1 - y); // Invert Y-coordinate here
+					setBlockStateAt(startX + x, invertedY, startZ, concrete, false);
+				}
+			}
+			File outputFile = new File("output/image.jpg");
+			ImageIO.write(outputImage, "jpg", outputFile);
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
 	public CompoundTag getBlockStateAt(int blockX, int blockY, int blockZ) {
 		int chunkX = MCAUtil.blockToChunk(blockX), chunkZ = MCAUtil.blockToChunk(blockZ);
 		Chunk chunk = getChunk(chunkX, chunkZ);
