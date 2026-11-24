@@ -26,6 +26,7 @@ public class NBTInputStream extends DataInputStream implements NBTInput, MaxDept
 
 	private static Map<Byte, ExceptionBiFunction<NBTInputStream, Integer, ? extends Tag<?>, IOException>> readers = new HashMap<>();
 	private static Map<Byte, Class<?>> idClassMapping = new HashMap<>();
+	private final boolean strict;
 
 	static {
 		put(EndTag.ID, (i, d) -> EndTag.INSTANCE, EndTag.class);
@@ -49,7 +50,22 @@ public class NBTInputStream extends DataInputStream implements NBTInput, MaxDept
 	}
 
 	public NBTInputStream(InputStream in) {
+		this(in, false);
+	}
+
+	private NBTInputStream(InputStream in, boolean strict) {
 		super(in);
+		this.strict = strict;
+	}
+
+	/**
+	 * Creates a big-endian NBT reader that rejects duplicate tag names within a compound and
+	 * unknown list element type IDs, including those in empty lists.
+	 * @param in the uncompressed NBT input stream
+	 * @return an NBT reader with these checks enabled
+	 */
+	public static NBTInputStream strict(InputStream in) {
+		return new NBTInputStream(in, true);
 	}
 
 	public NamedTag readTag(int maxDepth) throws IOException {
@@ -126,7 +142,11 @@ public class NBTInputStream extends DataInputStream implements NBTInput, MaxDept
 
 	private static ListTag<?> readListTag(NBTInputStream in, int maxDepth) throws IOException {
 		byte listType = in.readByte();
-		ListTag<?> list = ListTag.createUnchecked(idClassMapping.get(listType));
+		Class<?> elementClass = idClassMapping.get(listType);
+		if (in.strict && elementClass == null) {
+			throw new IOException("Unknown list element type ID " + Byte.toUnsignedInt(listType));
+		}
+		ListTag<?> list = ListTag.createUnchecked(elementClass);
 		int length = in.readInt();
 		if (length < 0) {
 			length = 0;
@@ -141,6 +161,9 @@ public class NBTInputStream extends DataInputStream implements NBTInput, MaxDept
 		CompoundTag comp = new CompoundTag();
 		for (int id = in.readByte() & 0xFF; id != 0; id = in.readByte() & 0xFF) {
 			String key = in.readUTF();
+			if (in.strict && comp.containsKey(key)) {
+				throw new IOException("Duplicate compound tag name \"" + key + "\"");
+			}
 			Tag<?> element = in.readTag((byte) id, in.decrementMaxDepth(maxDepth));
 			comp.put(key, element);
 		}

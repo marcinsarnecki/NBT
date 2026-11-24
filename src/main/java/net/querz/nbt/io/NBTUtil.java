@@ -9,6 +9,11 @@ import java.io.InputStream;
 import java.io.PushbackInputStream;
 import java.util.zip.GZIPInputStream;
 
+/**
+ * File-based NBT utilities. The default read overloads detect gzip. Write
+ * overloads without a compression argument write gzip. Pass
+ * {@code compressed=false} for uncompressed NBT.
+ */
 public final class NBTUtil {
 
 	private NBTUtil() {}

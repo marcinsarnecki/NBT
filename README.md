@@ -1,152 +1,223 @@
-# NBT
-[![Build Status](https://travis-ci.org/Querz/NBT.svg?branch=master)](https://travis-ci.org/Querz/NBT) [![Coverage Status](https://img.shields.io/coveralls/github/Querz/NBT/master.svg)](https://coveralls.io/github/Querz/NBT?branch=master) [![Release](https://jitpack.io/v/Querz/NBT.svg)](https://jitpack.io/#Querz/NBT)
-#### A java implementation of the [NBT protocol](https://minecraft.gamepedia.com/NBT_format) for Minecraft Java Edition.
----
-### Specification
-According to the [specification](https://minecraft.gamepedia.com/NBT_format), there are currently 13 different types of tags:
+# NBT and MCA
 
-| Tag class    | Superclass | ID | Payload |
-| ---------    | ---------- | -- | ----------- |
-| [EndTag](src/main/java/net/querz/nbt/tag/EndTag.java)             | [Tag](src/main/java/net/querz/nbt/tag/Tag.java)               | 0  | None |
-| [ByteTag](src/main/java/net/querz/nbt/tag/ByteTag.java)           | [NumberTag](src/main/java/net/querz/nbt/tag/NumberTag.java)   | 1  | 1 byte / 8 bits, signed |
-| [ShortTag](src/main/java/net/querz/nbt/tag/ShortTag.java)         | [NumberTag](src/main/java/net/querz/nbt/tag/NumberTag.java)   | 2  | 2 bytes / 16 bits, signed, big endian |
-| [IntTag](src/main/java/net/querz/nbt/tag/IntTag.java)             | [NumberTag](src/main/java/net/querz/nbt/tag/NumberTag.java)   | 3  | 4 bytes / 32 bits, signed, big endian |
-| [LongTag](src/main/java/net/querz/nbt/tag/LongTag.java)           | [NumberTag](src/main/java/net/querz/nbt/tag/NumberTag.java)   | 4  | 8 bytes / 64 bits, signed, big endian |
-| [FloatTag](src/main/java/net/querz/nbt/tag/FloatTag.java)         | [NumberTag](src/main/java/net/querz/nbt/tag/NumberTag.java)   | 5  | 4 bytes / 32 bits, signed, big endian, IEEE 754-2008, binary32 |
-| [DoubleTag](src/main/java/net/querz/nbt/tag/DoubleTag.java)       | [NumberTag](src/main/java/net/querz/nbt/tag/NumberTag.java)   | 6  | 8 bytes / 64 bits, signed, big endian, IEEE 754-2008, binary64 |
-| [ByteArrayTag](src/main/java/net/querz/nbt/tag/ByteArrayTag.java) | [ArrayTag](src/main/java/net/querz/nbt/tag/ArrayTag.java)     | 7  | `IntTag` payload *size*, then *size* `ByteTag` payloads |
-| [StringTag](src/main/java/net/querz/nbt/tag/StringTag.java)       | [Tag](src/main/java/net/querz/nbt/tag/Tag.java)               | 8  | `ShortTag` payload *length*, then a UTF-8 string with size *length* |
-| [ListTag](src/main/java/net/querz/nbt/tag/ListTag.java)           | [Tag](src/main/java/net/querz/nbt/tag/Tag.java)               | 9  | `ByteTag` payload *tagId*, then `IntTag` payload *size*, then *size* tags' payloads, all of type *tagId* |
-| [CompoundTag](src/main/java/net/querz/nbt/tag/CompoundTag.java)   | [Tag](src/main/java/net/querz/nbt/tag/Tag.java)               | 10 | Fully formed tags, followed by an `EndTag` |
-| [IntArrayTag](src/main/java/net/querz/nbt/tag/IntArrayTag.java)   | [ArrayTag](src/main/java/net/querz/nbt/tag/ArrayTag.java)     | 11 | `IntTag` payload *size*, then *size* `IntTag` payloads |
-| [LongArrayTag](src/main/java/net/querz/nbt/tag/LongArrayTag.java) | [ArrayTag](src/main/java/net/querz/nbt/tag/ArrayTag.java)     | 12 | `IntTag` payload *size*, then *size* `LongTag` payloads |
+A Java library for Named Binary Tag (NBT) data and offline editing of Minecraft
+Java Edition terrain regions. This project is based on Querz's original NBT
+library. Copyright (c) 2016–2020 Querz. [Upstream project](https://github.com/Querz/NBT) ·
+[MIT License](LICENSE)
 
-* The `EndTag` is only used to mark the end of a `CompoundTag` in its serialized state or an empty `ListTag`.
+The inherited library provides the NBT tag model, binary NBT and SNBT I/O, and
+region-file APIs. This fork adds Minecraft 26.3 block palette support, region
+and chunk record checks, block editing with missing-section creation and
+heightmap invalidation, and block-only structure placement.
 
-* The maximum depth of the NBT structure is 512. If the depth exceeds this restriction during serialization, deserialization or String conversion, a `MaxDepthReachedException` is thrown. This usually happens when a circular reference exists in the NBT structure. The NBT specification does not allow circular references, as there is no tag to represent this.
+## Minecraft compatibility
 
-### Add the library as a dependency using Gradle:
-Add Jitpack to your `repositories`:
-```
-repositories {
-	...
-	maven { url 'https://jitpack.io/' }
+The supported terrain workflow is reading and writing **ZLIB-compressed**
+`region/*.mca` files with existing, fully generated chunks. Vanilla Minecraft
+Java Edition **26.3 (`DataVersion=5023`)** was used to verify property-bearing
+and plain block edits, creation of an Overworld section, edits to existing
+Nether and End sections, and a MapartCraft staircase import. Automated tests
+inspect serialized NBT and packed indices independently of the block getter.
+Those checks cover these workflows on specific fixtures. World validation
+and block registry compatibility remain the caller's responsibility.
+[Fixture provenance](src/test/resources/net/querz/mca/palettes/README.md) ·
+[Manual validation](manual/README.md)
+
+| On-disk palette | Behavior |
+| --- | --- |
+| Plain strings | Compact string entries such as `minecraft:stone`. A property-free palette stays compact until an edit introduces a state with properties in 26.3. |
+| Mixed | The 26.3 representation can combine string values wrapped under an empty key with block state compounds using `id` and `properties`. |
+| Legacy compounds | State compounds use `Name` and optional `Properties`. The regression suite covers this encoding with a synthetic `DataVersion=4790` region. |
+
+The Java block API uses a `CompoundTag` with `Name` and optional
+`Properties` containing string values, regardless of the on-disk palette.
+Each section stores 4,096 palette indices. The packing width comes from the
+palette size, with a minimum of four bits. Indices stay within a single
+64-bit word. A single-value section can omit the packed array. Edits
+automatically repack when the width changes. Explicit palette cleanup can
+remove unused entries and is optional for ordinary edits and structure imports.
+Use `cleanupPalettesAndBlockStates()` on a region or chunk, or
+`cleanupPaletteAndBlockStates()` on a section, when you want to compact it.
+[Minecraft 26.3 block state format changes](https://www.minecraft.net/en-us/article/minecraft-java-edition-26-3)
+
+## Read, edit, and export a region
+
+Save this as `EditRegion.java` and pass an existing Overworld `r.0.0.mca`
+containing chunk `(0,0)` as the first argument. The example prints the previous
+block name when available and exports the modified region to a new temporary
+directory.
+
+```java
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import net.querz.mca.MCAFile;
+import net.querz.mca.MCAUtil;
+import net.querz.nbt.tag.CompoundTag;
+
+public class EditRegion {
+    public static void main(String[] args) throws IOException {
+        File input = new File(args[0]);
+        MCAFile region = MCAUtil.read(input);
+        CompoundTag previous = region.getBlockStateAt(3, -60, 3);
+        if (previous != null) {
+            System.out.println(previous.getString("Name"));
+        }
+
+        CompoundTag diamond = new CompoundTag();
+        diamond.putString("Name", "minecraft:diamond_block");
+        region.setBlockStateAt(3, -60, 3, diamond, false);
+
+        CompoundTag log = new CompoundTag();
+        log.putString("Name", "minecraft:jungle_log");
+        CompoundTag properties = new CompoundTag();
+        properties.putString("axis", "x");
+        log.put("Properties", properties);
+        region.setBlockStateAt(4, -60, 3, log, false);
+
+        Path output = Files.createTempDirectory("nbt-edit-").resolve(input.getName());
+        MCAUtil.write(region, output.toFile());
+        System.out.println(output);
+    }
 }
 ```
-And then add it as a dependency as usual:
-```
-dependencies {
-	...
-	implementation 'com.github.Querz:NBT:6.1'
+
+- `MCAUtil.read` derives the region coordinates from the filename. It checks
+  each modern terrain chunk's root-level integer `xPos` and `zPos` against
+  its header slot. Block access through `MCAFile` checks world X/Z, including
+  negative coordinates. The lower-level chunk slot APIs retain their
+  region-local indexing. Use a full load for editing and saving terrain.
+- The getter returns a detached state or `null` for an absent chunk or
+  section. The setter stores its own copy of a new state. Writes need an
+  existing chunk and can create a missing vertical section filled with air
+  around the edit. Setting ordinary air in a missing section leaves it absent.
+  Sections that contain only lighting are outside the block-editing workflow.
+- A changed block removes `WORLD_SURFACE`, `OCEAN_FLOOR`, `MOTION_BLOCKING`,
+  and `MOTION_BLOCKING_NO_LEAVES` from its chunk so Minecraft can rebuild
+  them on load. Other heightmaps are preserved.
+- Stored `isLightOn`, `SkyLight`, and `BlockLight` are preserved. Lighting
+  recalculation is left to Minecraft or a relighting tool. A reload alone
+  may leave lighting stale after an edit changes light emission or opacity.
+- Block edits leave block entities and scheduled block and fluid ticks in
+  place. Vanilla may discard an incompatible block entity after a block is
+  replaced, losing data such as a chest inventory. Pending ticks can still
+  refer to a replaced block or fluid. Keep the original region as a backup.
+- Export to the same region filename in another directory. A recognized
+  output filename must match the region coordinates. The writer stages the
+  replacement and rejects inline records exceeding 255 sectors. An empty
+  region writes an 8,192-byte header. External `.mcc` records, LZ4, and legacy
+  `Level`-wrapped chunk editing are outside the supported terrain workflow.
+
+## Import a block-only structure
+
+Save this as `ImportStructure.java`. Pass the input Overworld region, a
+gzip-compressed structure NBT file, and the world origin as `x y z`.
+
+```java
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import net.querz.mca.AirMode;
+import net.querz.mca.MCAFile;
+import net.querz.mca.MCAUtil;
+import net.querz.mca.StructureImporter;
+import net.querz.mca.StructureNbt;
+
+public class ImportStructure {
+    public static void main(String[] args) throws IOException {
+        File input = new File(args[0]);
+        StructureNbt structure = StructureNbt.read(Paths.get(args[1]));
+        MCAFile region = MCAUtil.read(input);
+        int x = Integer.parseInt(args[2]);
+        int y = Integer.parseInt(args[3]);
+        int z = Integer.parseInt(args[4]);
+
+        StructureImporter.place(structure, region, x, y, z, -64, 384, AirMode.SKIP_EXPLICIT);
+
+        Path output = Files.createTempDirectory("nbt-structure-").resolve(input.getName());
+        MCAUtil.write(region, output.toFile());
+        System.out.println(output);
+    }
 }
 ```
 
-### Add the library as a dependency using Maven:
-Add Jitpack:
-```
-<repositories>
-	<repository>
-		<id>jitpack.io</id>
-		<url>https://jitpack.io</url>
-	</repository>
-</repositories>
-```
-Dependency:
-```
-<dependency>
-	<groupId>com.github.Querz</groupId>
-	<artifactId>NBT</artifactId>
-	<version>6.1</version>
-</dependency>
-```
+Pass the destination's actual minimum Y and height to the importer. Direct
+block edits check whether the section Y fits in the MCA format. The caller
+enforces dimension-specific bounds for those edits.
 
----
-### Example usage:
-The following code snippet shows how to create a `CompoundTag`:
+| Standard vanilla dimension | Block Y (inclusive) | Importer `minY`, `height` |
+| --- | --- | --- |
+| Overworld | −64 through 319 | `-64, 384` |
+| Nether | 0 through 255 | `0, 256` |
+| End | 0 through 255 | `0, 256` |
+
+`StructureNbt.read` accepts a single palette and validates the structure's
+types, dimensions, positions, and palette indices. It rejects alternate
+palettes, per-block NBT, and nonempty entity lists. `StructureImporter.place`
+checks the full footprint against one region and the supplied build range.
+Before applying any write, it checks for existing, fully loaded terrain
+chunks, editable sections or gaps, and block entity overlaps. Unexpected
+errors during placement have no rollback. Saving is a separate step.
+
+`PLACE_EXPLICIT` writes listed air states. `SKIP_EXPLICIT` leaves listed air,
+cave air, and void air untouched. Both modes leave omitted positions alone.
+Multi-region placement, missing chunk generation, ordinary entity editing,
+and DataVersion conversion are outside this workflow.
+[Standalone MapartCraft example](examples/mapart-structure/README.md)
+
+## Inherited NBT utilities
+
+The tag model includes numeric and string tags, typed lists, compounds,
+primitive arrays, and `EndTag` for compound termination or empty-list
+encoding. `NBTUtil` reads gzip or uncompressed NBT, writes gzip by default,
+and provides little-endian variants. Use `NamedTag` to supply a root name.
+`SNBTUtil` reads and writes the string form of NBT. The default nesting limit is `Tag.DEFAULT_MAX_DEPTH`
+(512). Exceeding it raises `MaxDepthReachedException`.
+
 ```java
-CompoundTag ct = new CompoundTag();
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import net.querz.nbt.io.NBTUtil;
+import net.querz.nbt.io.SNBTUtil;
+import net.querz.nbt.tag.CompoundTag;
+import net.querz.nbt.tag.FloatTag;
+import net.querz.nbt.tag.ListTag;
 
-ct.put("byte", new ByteTag((byte) 1));
-ct.put("double", new DoubleTag(1.234));
-ct.putString("string", "stringValue");
+public class NbtExample {
+    public static void main(String[] args) throws IOException {
+        CompoundTag root = new CompoundTag();
+        root.putString("name", "sample");
+        ListTag<FloatTag> values = new ListTag<>(FloatTag.class);
+        values.addFloat(1.25f);
+        root.put("values", values);
+
+        Path file = Files.createTempFile("nbt-example-", ".dat");
+        NBTUtil.write(root, file.toFile());
+        System.out.println(SNBTUtil.toSNBT(NBTUtil.read(file.toFile()).getTag()));
+    }
+}
 ```
-An example how to use a `ListTag`:
-```java
-ListTag<FloatTag> fl = new ListTag<>(FloatTag.class);
 
-fl.add(new FloatTag(1.234f);
-fl.addFloat(5.678f);
+## Build and test
+
+The library targets Java 8 source and bytecode. Use JDK 11 to run the
+repository's Gradle 6.5 wrapper. From the repository root.
+
+```sh
+./gradlew build
+./gradlew test
 ```
 
-#### Nesting
-All methods serializing instances or deserializing data track the nesting levels to prevent circular references or malicious data which could, when deserialized, result in thousands of instances causing a denial of service.
+On Windows use `.\gradlew.bat`. The library JAR is in `build/libs/`.
+Compile the Java examples against that JAR. On JDK 9 or later, pass
+`--release 8` to `javac` to target Java 8.
 
-These methods have a parameter for the maximum nesting depth they are allowed to traverse. A value of `0` means that only the object itself, but no nested object may be processed.
-
-If an instance is nested further than allowed, a [MaxDepthReachedException](src/main/java/net/querz/nbt/MaxDepthReachedException.java) will be thrown. A negative maximum depth will cause an `IllegalArgumentException`.
-
-Some methods do not provide a parameter to specify the maximum depth, but instead use `Tag.DEFAULT_MAX_DEPTH` (`512`) which is also the maximum used in Minecraft.
-
----
-### Utility
-There are several utility methods to make your life easier if you use this library.
-#### NBTUtil
-`NBTUtil.write()` lets you write a Tag into a gzip compressed or uncompressed file in one line (not counting exception handling). Files are gzip compressed by default.
-
-Example usage:
-```java
-NBTUtil.write(namedTag, "filename.dat");
-```
-`NBTUtil.read()` reads any file containing NBT data. No worry about compression, it will automatically uncompress gzip compressed files.
-
-Example usage:
-```java
-NamedTag namedTag = NBTUtil.read("filename.dat");
-```
-#### Playing Minecraft?
-Each tag can be converted into an NBT String (SNBT) used in Minecraft commands.
-
-Example usage:
-```java
-CompoundTag c = new CompoundTag();
-c.putByte("blah", (byte) 5);
-c.putString("foo", "bär");
-ListTag<StringTag> s = new ListTag<>(StringTag.class);
-s.addString("test");
-s.add(new StringTag("text"));
-c.add("list", s);
-System.out.println(SNBTUtil.toSNBT(c)); // {blah:5b,foo:"bär",list:[test,text]}
-
-```
-There is also a tool to read, change and write MCA files.
-
-Here are some examples:
-```java
-// This changes the InhabitedTime field of the chunk at x=68, z=81 to 0
-MCAFile mcaFile = MCAUtil.readMCAFile("r.2.2.mca");
-Chunk chunk = mcaFile.getChunk(68, 81);
-chunk.setInhabitedTime(0);
-MCAUtil.writeMCAFile("r.2.2.mca", mcaFile);
-```
-There is also an optimized api to retrieve and set block information (BlockStates) in MCA files.
-
-Example:
-```java
-// Retrieves block information from the MCA file
-CompoundTag blockState = mcaFile.getBlockStateAt(1090, 25, 1301);
-
-// Retrieves block information from a single chunk
-CompoundTag blockState = chunk.getBlockStateAt(2, 25, 5);
-
-// Set block information
-CompoundTag stone = new CompoundTag();
-stone.putString("Name", "minecraft:stone");
-mcaFile.setBlockStateAt(1090, 25, 1301, stone, false);
-```
-To ensure good performance even when setting a lot of blocks and / or editing sections with a huge palette of block states, the size of the BlockStates array is only updated when the size of the palette requires it. This means there might be blocks in the palette that are not actually used in the BlockStates array.
-You can trigger a cleanup process by calling one of the following three methods, depending on the desired depth:
-```java
-mcaFile.cleanupPalettesAndBlockStates();
-chunk.cleanupPalettesAndBlockStates();
-section.cleanupPaletteAndBlockStates();
-```
+The default tests use checked-in fixtures and temporary outputs. With the
+Gradle distribution and dependencies cached, run them with `--offline`.
+Fixture generation is a separate workflow from testing. The guide covers
+the three vanilla 26.3 dimension excerpts and the synthetic legacy fixture.
+[Fixture generation](fixture-generation/README.md)

@@ -32,26 +32,20 @@ public class ListTag<T extends Tag<?>> extends Tag<List<T>> implements Iterable<
 	}
 
 	/**
-	 * <p>Creates a non-type-safe ListTag. Its element type will be set after the first
-	 * element was added.</p>
-	 *
-	 * <p>This is an internal helper method for cases where the element type is not known
-	 * at construction time. Use {@link #ListTag(Class)} when the type is known.</p>
-	 *
-	 * @return A new non-type-safe ListTag
+	 * Creates a list without a compile-time element type, with a default initial capacity.
+	 * @param typeClass the runtime element type, or {@code null} to infer it from the first element added
+	 * @return the new list
 	 */
 	public static ListTag<?> createUnchecked(Class<?> typeClass) {
 		return createUnchecked(typeClass, 3);
 	}
 
 	/**
-	 * <p>Creates a non-type-safe ListTag. Its element type will be set after the first
-	 * element was added.</p>
-	 *
-	 * <p>This is an internal helper method for cases where the element type is not known
-	 * at construction time. Use {@link #ListTag(Class)} when the type is known.</p>
-	 *
-	 * @return A new non-type-safe ListTag
+	 * Creates a list without a compile-time element type. Use {@link #ListTag(Class)}
+	 * when the element type is known at compile time.
+	 * @param typeClass the runtime element type, or {@code null} to infer it from the first element added
+	 * @param initialCapacity the initial backing list capacity
+	 * @return the new list
 	 */
 	public static ListTag<?> createUnchecked(Class<?> typeClass, int initialCapacity) {
 		ListTag<?> list = new ListTag<>(initialCapacity);
@@ -64,7 +58,7 @@ public class ListTag<T extends Tag<?>> extends Tag<List<T>> implements Iterable<
 	 *
 	 * @param <T>             Type of the list elements
 	 * @param initialCapacity The initial capacity of the returned List
-	 * @return An instance of {@link java.util.List} with an initial capacity of 3
+	 * @return a mutable list with the requested initial capacity
 	 */
 	private static <T> List<T> createEmptyValue(int initialCapacity) {
 		return new ArrayList<>(initialCapacity);

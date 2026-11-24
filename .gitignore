@@ -87,3 +87,8 @@ doc/
 out/
 
 *.patch
+/input/
+/output/
+/manual/input/
+/manual/output/
+maze_top.txt

@@ -1,5 +1,9 @@
 package net.querz.mca;
 
+/**
+ * Loading modes for chunk and region reads. Use {@link #ALL_DATA} to edit
+ * and save terrain. Partially loaded chunks cannot be serialized.
+ */
 public final class LoadFlags {
 
 	public static final long BIOMES               = 0x00001;
@@ -17,7 +21,9 @@ public final class LoadFlags {
 	public static final long SKY_LIGHT            = 0x02000;
 	public static final long LIGHTS               = 0x04000;
 	public static final long LIQUIDS_TO_BE_TICKED = 0x08000;
+	/** Retains the decoded NBT root without initializing structured block access. */
 	public static final long RAW                  = 0x10000;
 
+	/** Loads the full chunk for normal terrain reads, edits, and writes. */
 	public static final long ALL_DATA             = 0xffffffffffffffffL;
 }

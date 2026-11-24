@@ -23,10 +23,29 @@ dependencies {
 	testCompile 'junit:junit:4.12'
 }
 
+sourceSets {
+	vanillaTest {
+		compileClasspath += sourceSets.main.output + sourceSets.test.output
+		runtimeClasspath += sourceSets.main.output + sourceSets.test.output
+	}
+}
+
+configurations {
+	vanillaTestImplementation.extendsFrom testImplementation
+	vanillaTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+task vanillaTest(type: Test) {
+	group = 'verification'
+	description = 'Generates disposable regions for manual vanilla Minecraft validation.'
+	testClassesDirs = sourceSets.vanillaTest.output.classesDirs
+	classpath = sourceSets.vanillaTest.runtimeClasspath
+	outputs.upToDateWhen { false }
+}
+
 javadoc {
 	source = sourceSets.main.allJava
 	classpath = configurations.compile
-	destinationDir = file("./doc/")
 	options.windowTitle 'NBT'
 	options.encoding 'UTF-8'
 	options.linkSource true
@@ -42,6 +61,36 @@ task javadocJar(type: Jar, dependsOn: javadoc) {
 	classifier = 'javadoc'
 	from javadoc.destinationDir
 }
+
+def projectLicense = file('LICENSE')
+def releaseArchives = [jar, sourcesJar, javadocJar]
+releaseArchives.each { archive ->
+	archive.from(projectLicense) {
+		into 'META-INF'
+	}
+}
+
+task verifyArchiveLicenses {
+	group = 'verification'
+	description = 'Verifies the project license in every release JAR.'
+	dependsOn releaseArchives
+	inputs.file projectLicense
+	inputs.files releaseArchives.collect { it.archiveFile }
+	doLast {
+		byte[] expectedLicense = projectLicense.bytes
+		releaseArchives.each { archive ->
+			File file = archive.archiveFile.get().asFile
+			new java.util.zip.ZipFile(file).withCloseable { zip ->
+				def entry = zip.getEntry('META-INF/LICENSE')
+				if (entry == null || !Arrays.equals(expectedLicense, zip.getInputStream(entry).bytes)) {
+					throw new GradleException("${file.name} must contain the original project license at META-INF/LICENSE")
+				}
+			}
+		}
+	}
+}
+
+check.dependsOn verifyArchiveLicenses
 
 jacocoTestReport {
 	reports {

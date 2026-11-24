@@ -4,55 +4,60 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Provides main and utility functions to read and write .mca files and
- * to convert block, chunk and region coordinates.
- * */
+/** File-based MCA region I/O and conversions between block, chunk, and region coordinates. */
 public final class MCAUtil {
 
 	private MCAUtil() {}
 
 	/**
-	 * @see MCAUtil#read(File)
+	 * Reads all data from a region file. See {@link #read(File)} for the file naming and validation rules.
 	 * @param file The file to read the data from.
 	 * @return An in-memory representation of the MCA file with decompressed chunk data.
-	 * @throws IOException if something during deserialization goes wrong.
+	 * @throws IOException if the file cannot be read or decoded
+	 * @throws IllegalArgumentException if the filename does not identify a region
 	 * */
 	public static MCAFile read(String file) throws IOException {
 		return read(new File(file), LoadFlags.ALL_DATA);
 	}
 
 	/**
-	 * Reads an MCA file and loads all of its chunks.
+	 * Reads all data from an MCA region. The filename supplies the region coordinates.
+	 * Use this overload for editing and saving generated terrain.
 	 * @param file The file to read the data from.
 	 * @return An in-memory representation of the MCA file with decompressed chunk data.
-	 * @throws IOException if something during deserialization goes wrong.
+	 * @throws IOException if the file cannot be read or decoded, or modern terrain coordinates do not match their slots
+	 * @throws IllegalArgumentException if the filename does not identify a region
 	 * */
 	public static MCAFile read(File file) throws IOException {
 		return read(file, LoadFlags.ALL_DATA);
 	}
 
 	/**
-	 * @see MCAUtil#read(File)
+	 * Reads an MCA region with the requested loading mode. See {@link #read(File, long)}.
 	 * @param file The file to read the data from.
 	 * @return An in-memory representation of the MCA file with decompressed chunk data.
-	 * @param loadFlags A logical or of {@link LoadFlags} constants indicating what data should be loaded
-	 * @throws IOException if something during deserialization goes wrong.
+	 * @param loadFlags the requested {@link LoadFlags}
+	 * @throws IOException if the file cannot be read or decoded, or modern terrain coordinates do not match their slots
+	 * @throws IllegalArgumentException if the filename does not identify a region
 	 * */
 	public static MCAFile read(String file, long loadFlags) throws IOException {
 		return read(new File(file), loadFlags);
 	}
 
 	/**
-	 * Reads an MCA file and loads all of its chunks.
+	 * Reads an MCA region using its filename to determine its coordinates. Chunk payloads
+	 * are bounded by their declared record lengths. Modern terrain chunk coordinates
+	 * are checked against their slots in every loading mode, including {@link LoadFlags#RAW}.
 	 * @param file The file to read the data from.
 	 * @return An in-memory representation of the MCA file with decompressed chunk data
-	 * @param loadFlags A logical or of {@link LoadFlags} constants indicating what data should be loaded
-	 * @throws IOException if something during deserialization goes wrong.
+	 * @param loadFlags the requested {@link LoadFlags}. Use {@link LoadFlags#ALL_DATA} for terrain edits
+	 * @throws IOException if the file cannot be read or decoded, or modern terrain coordinates do not match their slots
+	 * @throws IllegalArgumentException if the filename does not identify a region
 	 * */
 	public static MCAFile read(File file, long loadFlags) throws IOException {
 		MCAFile mcaFile = newMCAFile(file);
@@ -90,7 +95,7 @@ public final class MCAUtil {
 	 * @see MCAUtil#write(MCAFile, File, boolean)
 	 * @param file The file to write to.
 	 * @param mcaFile The data of the MCA file to write.
-	 * @param changeLastUpdate Whether to adjust the timestamps of when the file was saved.
+	 * @param changeLastUpdate whether to update the chunk timestamps in the region header
 	 * @return The amount of chunks written to the file.
 	 * @throws IOException If something goes wrong during serialization.
 	 * */
@@ -99,30 +104,36 @@ public final class MCAUtil {
 	}
 
 	/**
-	 * Writes an {@code MCAFile} object to disk. It optionally adjusts the timestamps
-	 * when the file was last saved to the current date and time or leaves them at
-	 * the value set by either loading an already existing MCA file or setting them manually.<br>
-	 * If the file already exists, it is completely overwritten by the new file (no modification).
+	 * Stages a region with ZLIB-compressed chunk records, then replaces the destination.
+	 * Oversized inline records that require more than 255 sectors are rejected before
+	 * replacement. An empty region writes just the 8,192-byte header.
+	 * A recognized destination region filename must match the coordinates of the region.
+	 * Other export names are accepted.
 	 * @param file The file to write to.
 	 * @param mcaFile The data of the MCA file to write.
-	 * @param changeLastUpdate Whether to adjust the timestamps of when the file was saved.
-	 * @return The amount of chunks written to the file.
-	 * @throws IOException If something goes wrong during serialization.
+	 * @param changeLastUpdate whether to update the chunk timestamps in the region header
+	 * @return the number of chunk records written
+	 * @throws IOException if the region cannot be serialized or written
+	 * @throws IllegalArgumentException if a recognized destination region name has different coordinates
+	 * @throws UnsupportedOperationException if the region contains a partially loaded chunk
 	 * */
 	public static int write(MCAFile mcaFile, File file, boolean changeLastUpdate) throws IOException {
-		File to = file;
-		if (file.exists()) {
-			to = File.createTempFile(to.getName(), null);
+		MCAFile namedRegion = parseRegionFileName(file.getName());
+		if (namedRegion != null) {
+			mcaFile.checkWriteRegion(namedRegion);
 		}
-		int chunks;
-		try (RandomAccessFile raf = new RandomAccessFile(to, "rw")) {
-			chunks = mcaFile.serialize(raf, changeLastUpdate);
+		Path destination = file.toPath().toAbsolutePath();
+		Path staged = Files.createTempFile(destination.getParent(), ".mca-region-", ".tmp");
+		try {
+			int chunks;
+			try (RandomAccessFile raf = new RandomAccessFile(staged.toFile(), "rw")) {
+				chunks = mcaFile.serializeToStagingFile(raf, changeLastUpdate);
+			}
+			Files.move(staged, destination, StandardCopyOption.REPLACE_EXISTING);
+			return chunks;
+		} finally {
+			Files.deleteIfExists(staged);
 		}
-
-		if (chunks > 0 && to != file) {
-			Files.move(to.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-		}
-		return chunks;
 	}
 
 	/**
@@ -213,11 +224,25 @@ public final class MCAUtil {
 
 	private static final Pattern mcaFilePattern = Pattern.compile("^.*r\\.(?<regionX>-?\\d+)\\.(?<regionZ>-?\\d+)\\.mca$");
 
+	/**
+	 * Creates an empty region using the coordinates in the given filename.
+	 * @param file a path whose basename ends in {@code r.<regionX>.<regionZ>.mca}
+	 * @return the empty region
+	 * @throws IllegalArgumentException if the basename does not identify a region
+	 */
 	public static MCAFile newMCAFile(File file) {
-		Matcher m = mcaFilePattern.matcher(file.getName());
+		MCAFile region = parseRegionFileName(file.getName());
+		if (region == null) {
+			throw new IllegalArgumentException("invalid mca file name: " + file.getName());
+		}
+		return region;
+	}
+
+	private static MCAFile parseRegionFileName(String name) {
+		Matcher m = mcaFilePattern.matcher(name);
 		if (m.find()) {
 			return new MCAFile(Integer.parseInt(m.group("regionX")), Integer.parseInt(m.group("regionZ")));
 		}
-		throw new IllegalArgumentException("invalid mca file name: " + file.getName());
+		return null;
 	}
 }
